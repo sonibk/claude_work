@@ -1,0 +1,386 @@
+---
+title: "Reading_samples"
+author: "Brenda Karumbo"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+ setwd("~/Desktop/PhD/Project/IM_samples")
+```
+
+
+```{r, message=FALSE}
+library(Seurat)
+library(patchwork)
+library(multtest)
+library(ggplot2)
+library(cowplot)
+library(ggplot2)
+library(tidyverse)
+library(gridExtra)
+library(DoubletFinder)
+library(SoupX)
+library(slingshot)
+#library(monocle3)
+library(SingleCellExperiment)
+library(RColorBrewer)
+library(dplyr)
+library(harmony)
+library(clustree)
+library(data.table)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(DropletUtils)
+library(RCurl)
+library(AnnotationHub)
+library(ensembldb)
+library(UpSetR)
+library(purrr)
+library(limma)
+library(ggrepel)
+library(readxl)
+library(dendextend)
+library(circlize)
+library(ComplexHeatmap)
+library(stats)
+library(writexl)
+library(ggpubr)
+library(readr)
+library(DESeq2)
+```
+
+
+
+```{r}
+####set the theme for the plots
+theme_SL3 <- function () {
+  theme_bw() %+replace%
+    theme(
+      panel.grid = element_blank(),
+      panel.background = element_blank(),
+      panel.border = element_rect(colour = "black", fill=NA, linewidth=1),
+      plot.background = element_blank(),
+      legend.background = element_rect(fill="transparent", colour=NA),
+      legend.key = element_rect(fill="transparent", colour=NA),
+      plot.title = element_text(size=14, margin = margin(b = 5),hjust=0,vjust=0.5, face="bold"),
+      title = element_text(size = 14, margin = margin(b = 5),hjust=0,vjust=0.5, face="bold"),
+      axis.text.y = element_text(size = 12, margin = margin(r = 5),hjust=1,vjust=0.5, face="bold",colour="black"),
+      axis.text.x = element_text(size = 11, margin = margin(t = 5),hjust=0.5,vjust=1, face="bold",colour="black"),
+      axis.title.y = element_text(size = 12, margin = margin(r = 10),angle = 90,hjust=0.5,vjust=0.5, face="bold"),
+      axis.title.x = element_text(size = 12, margin = margin(t = 10),hjust=0.5,vjust=1, face="bold"),
+      legend.text=element_text(size=12, face="bold"),
+      legend.title=element_blank(),
+      legend.key.size=unit(2.5,"line"),
+      plot.margin=unit(c(0.4,0.4,0.4,0.4), "cm")
+    )
+}
+```
+
+
+
+```{r}
+#### extract the samples
+IM196_24_mat <- Read10X("IM196-24/filtered_feature_bc_matrix/")
+
+IM196_24_sc <- CreateSeuratObject(IM196_24_mat$`Gene Expression`, project = "IM196_24", min.cells = 3, min.features = 100)
+
+IM196_24_sc$Tissue <- paste("Blood")
+IM196_24_sc$Condition <- paste("CM-retpos_24")
+IM196_24_sc$Study <- paste("IMPAC")
+
+```
+
+
+```{r}
+
+IM196_mat <- Read10X("IM196/filtered_feature_bc_matrix/")
+
+IM196_sc <- CreateSeuratObject(IM196_mat$`Gene Expression`, project = "IM196", min.cells = 3, min.features = 100)
+
+IM196_sc$Tissue <- paste("Blood")
+IM196_sc$Condition <- paste("CM-retpos")
+IM196_sc$Study <- paste("IMPAC")
+
+```
+
+
+```{r}
+
+IM189_mat <- Read10X("IM189/filtered_feature_bc_matrix/")
+
+IM189_sc <- CreateSeuratObject(IM189_mat$`Gene Expression`, project = "IM189", min.cells = 3, min.features = 100)
+
+IM189_sc$Tissue <- paste("Blood")
+IM189_sc$Condition <- paste("CM-retpos")
+IM189_sc$Study <- paste("IMPAC")
+```
+
+
+```{r}
+IM189_24_mat <- Read10X("IM189-24/filtered_feature_bc_matrix/")
+
+IM189_24_sc <- CreateSeuratObject(IM189_24_mat$`Gene Expression`, project = "IM189_24", min.cells = 3, min.features = 100)
+
+IM189_24_sc$Tissue <- paste("Blood")
+IM189_24_sc$Condition <- paste("CM-retpos_24")
+IM189_24_sc$Study <- paste("IMPAC")
+
+```
+
+
+```{r}
+
+IM184_mat <- Read10X("IM184/filtered_feature_bc_matrix/")
+
+IM184_sc <- CreateSeuratObject(IM184_mat$`Gene Expression`, project = "IM184", min.cells = 3, min.features = 100)
+
+IM184_sc$Tissue <- paste("Blood")
+IM184_sc$Condition <- paste("CM-retneg")
+IM184_sc$Study <- paste("IMPAC")
+
+```
+
+
+
+```{r}
+
+IM182_mat <- Read10X("IM182/filtered_feature_bc_matrix/")
+
+IM182_sc <- CreateSeuratObject(IM182_mat$`Gene Expression`, project = "IM182", min.cells = 3, min.features = 100)
+
+IM182_sc$Tissue <- paste("Blood")
+IM182_sc$Condition <- paste("CM-retpos")
+IM182_sc$Study <- paste("IMPAC")
+
+```
+
+
+
+```{r}
+
+HC20_mat <- Read10X("HC20/filtered_feature_bc_matrix/")
+
+HC20_sc <- CreateSeuratObject(HC20_mat$`Gene Expression`, project = "HC20", min.cells = 3, min.features = 100)
+
+HC20_sc$Tissue <- paste("Blood")
+HC20_sc$Condition <- paste("IMPAC ctrl")
+HC20_sc$Study <- paste("IMPAC")
+
+```
+
+
+```{r}
+IM168_mat<- Read10X("IM168/filtered_feature_bc_matrix/")
+
+IM168_sc <- CreateSeuratObject(IM168_mat$`Gene Expression`, project = "IM168", min.cells = 3, min.features = 100)
+
+IM168_sc$Tissue <- paste("Blood")
+IM168_sc$Condition <- paste("CM-retneg")
+IM168_sc$Study <- paste("IMPAC")
+
+```
+
+
+
+```{r}
+#### extract the whole blood samples/ whole BM
+
+IM168_24_mat<- Read10X("IM168-24/filtered_feature_bc_matrix/")
+
+IM168_24_sc <- CreateSeuratObject(IM168_24_mat$`Gene Expression`, project = "IM168_24", min.cells = 3, min.features = 100)
+
+IM168_24_sc$Tissue <- paste("Blood")
+IM168_24_sc$Condition <- paste("CM-retneg_24")
+IM168_24_sc$Study <- paste("IMPAC")
+
+```
+
+
+```{r}
+#### extract the whole blood samples/ whole BM
+
+
+IM166_mat<- Read10X("IM166/filtered_feature_bc_matrix/")
+
+IM166_sc <- CreateSeuratObject(IM166_mat$`Gene Expression`, project = "IM166", min.cells = 3, min.features = 100)
+
+IM166_sc$Tissue <- paste("Blood")
+IM166_sc$Condition <- paste("CM-retneg")
+IM166_sc$Study <- paste("IMPAC")
+
+```
+
+
+
+```{r}
+### READ in the other samples
+HC32_mat<- Read10X("HC32/filtered_feature_bc_matrix/")
+
+HC32_sc<- CreateSeuratObject(HC32_mat$`Gene Expression`, project = "HC32", min.cells = 3, min.features = 150)
+
+HC32_sc$Tissue <- paste("Blood")
+HC32_sc$Condition <- paste("IMPAC ctrl")
+HC32_sc$Study <- paste("IMPAC")
+```
+
+
+```{r}
+### READ in the other samples
+HC34_mat<- Read10X("HC34/filtered_feature_bc_matrix/")
+
+HC34_sc <- CreateSeuratObject(HC34_mat$`Gene Expression`, project = "HC34", min.cells = 3, min.features = 150)
+
+HC34_sc$Tissue <- paste("Blood")
+HC34_sc$Condition <- paste("IMPAC ctrl")
+HC34_sc$Study <- paste("IMPAC")
+```
+
+
+```{r}
+### READ in the other samples
+HC21_mat <- Read10X("HC21/filtered_feature_bc_matrix/")
+
+HC21_sc<- CreateSeuratObject(HC21_mat, project = "HC21", min.cells = 3, min.features = 150)
+
+HC21_sc$Tissue <- paste("Blood")
+HC21_sc$Condition <- paste("IMPAC ctrl")
+HC21_sc$Study <- paste("IMPAC")
+```
+
+
+```{r}
+### READ in the other samples
+HC41_mat<- Read10X("HC41/filtered_feature_bc_matrix/")
+
+HC41_sc<- CreateSeuratObject(HC41_mat, project = "HC41", min.cells = 3, min.features = 150)
+
+HC41_sc$Tissue <- paste("Blood")
+HC41_sc$Condition <- paste("IMPAC ctrl")
+HC41_sc$Study <- paste("IMPAC")
+```
+
+```{r}
+### READ in the other samples
+IM152_mat<- Read10X("IM152/filtered_feature_bc_matrix/")
+
+IM152_sc<- CreateSeuratObject(IM152_mat$`Gene Expression`, project = "IM152", min.cells = 3, min.features = 150)
+
+IM152_sc$Tissue <- paste("Blood")
+IM152_sc$Condition <- paste("CM-retpos")
+IM152_sc$Study <- paste("IMPAC")
+```
+
+```{r}
+### READ in the other samples
+IM181_mat<- Read10X("IM181/filtered_feature_bc_matrix/")
+
+IM181_sc <- CreateSeuratObject(IM181_mat$`Gene Expression`, project = "IM181", min.cells = 3, min.features = 150)
+
+IM181_sc$Tissue <- paste("Blood")
+IM181_sc$Condition <- paste("CM-retpos")
+IM181_sc$Study <- paste("IMPAC")
+```
+
+```{r}
+### READ in the other samples
+IM217_mat<- Read10X("IM217/filtered_feature_bc_matrix/")
+
+IM217_sc<- CreateSeuratObject(IM217_mat$`Gene Expression`, project = "IM217", min.cells = 3, min.features = 150)
+
+IM217_sc$Tissue <- paste("Blood")
+IM217_sc$Condition <- paste("CM-retpos")
+IM217_sc$Study <- paste("IMPAC")
+```
+
+```{r}
+### READ in the other samples
+IM217_24_mat<- Read10X("IM217-24/filtered_feature_bc_matrix/")
+
+IM217_24_sc<- CreateSeuratObject(IM217_24_mat$`Gene Expression`, project = "IM217_24", min.cells = 3, min.features = 150)
+
+IM217_24_sc$Tissue <- paste("Blood")
+IM217_24_sc$Condition <- paste("CM-retpos_24")
+IM217_24_sc$Study <- paste("IMPAC")
+```
+
+
+```{r}
+### READ in the other samples
+IM188_mat<- Read10X("IM188/filtered_feature_bc_matrix/")
+
+IM188_sc<- CreateSeuratObject(IM188_mat, project = "IM188", min.cells = 3, min.features = 150)
+
+IM188_sc$Tissue <- paste("Blood")
+IM188_sc$Condition <- paste("CM-retpos")
+IM188_sc$Study <- paste("IMPAC")
+```
+
+
+```{r}
+### READ in the other samples
+IM186_mat<- Read10X("IM186/filtered_feature_bc_matrix/")
+
+IM186_sc<- CreateSeuratObject(IM186_mat, project = "IM186", min.cells = 3, min.features = 150)
+
+IM186_sc$Tissue <- paste("Blood")
+IM186_sc$Condition <- paste("CM-retneg")
+IM186_sc$Study <- paste("IMPAC")
+```
+
+
+
+```{r}
+### READ in the other samples
+IM307_mat<- Read10X("IM307/filtered_feature_bc_matrix/")
+
+IM307_sc<- CreateSeuratObject(IM307_mat$`Gene Expression`, project = "IM307", min.cells = 3, min.features = 150)
+
+IM307_sc$Tissue <- paste("Blood")
+IM307_sc$Condition <- paste("CM-retneg")
+IM307_sc$Study <- paste("IMPAC")
+```
+
+
+
+
+```{r}
+# start analysis
+#create a list of all the samples you got
+
+matrix.list <- list(
+  HC20_sc, HC32_sc, HC34_sc, IM152_sc, 
+  IM168_sc, IM168_24_sc, IM181_sc, IM182_sc, IM184_sc, IM189_24_sc, 
+  IM189_24_sc, IM196_sc, IM196_24_sc, IM217_sc, IM217_24_sc, 
+  IM307_sc, IM166_sc, HC21_sc, HC41_sc, IM188_sc, IM186_sc)
+
+length(matrix.list)
+
+```
+
+
+```{r}
+
+####Give the matrix.list names 
+
+matrix.names <-  c(
+  "HC20", "HC32", "HC34", "IM152",
+  "IM168", "IM168_24", "IM181", "IM182", "IM184", "IM189",
+  "IM189_24", "IM196", "IM196_24", "IM217", "IM217_24",
+  "IM307", "IM166", "HC21", "HC41", "IM188", "IM186"
+)
+
+
+names(matrix.list)<- matrix.names
+
+```
+
+
+```{r}
+#### Save the file
+saveRDS(matrix.list, "/Users/brendakarumbo/Desktop/PhD/Project/IM_samples/Raw_seurat_objects_list.rds")
+```
+
