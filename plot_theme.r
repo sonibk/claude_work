@@ -1,0 +1,22 @@
+####set the theme for the plots
+theme_SL3 <- function () {
+  theme_bw() %+replace%
+    theme(
+      panel.grid = element_blank(),
+      panel.background = element_blank(),
+      panel.border = element_rect(colour = "black", fill=NA, linewidth=1),
+      plot.background = element_blank(),
+      legend.background = element_rect(fill="transparent", colour=NA),
+      legend.key = element_rect(fill="transparent", colour=NA),
+      plot.title = element_text(size=14, margin = margin(b = 5),hjust=0,vjust=0.5, face="bold"),
+      title = element_text(size = 14, margin = margin(b = 5),hjust=0,vjust=0.5, face="bold"),
+      axis.text.y = element_text(size = 12, margin = margin(r = 5),hjust=1,vjust=0.5, face="bold",colour="black"),
+      axis.text.x = element_text(size = 11, margin = margin(t = 5),hjust=0.5,vjust=1, face="bold",colour="black"),
+      axis.title.y = element_text(size = 12, margin = margin(r = 10),angle = 90,hjust=0.5,vjust=0.5, face="bold"),
+      axis.title.x = element_text(size = 12, margin = margin(t = 10),hjust=0.5,vjust=1, face="bold"),
+      legend.text=element_text(size=12, face="bold"),
+      legend.title=element_blank(),
+      legend.key.size=unit(2.5,"line"),
+      plot.margin=unit(c(0.4,0.4,0.4,0.4), "cm")
+    )
+}
