@@ -1,0 +1,986 @@
+---
+title: "HUMAN"
+author: "Brenda Karumbo"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(Seurat)
+#library(SeuratData)
+library(patchwork)
+library(dplyr)
+library(ggplot2)
+```
+
+
+
+```{r}
+###import the list of seurat objects
+matrix.list <- readRDS("/Users/brendakarumbo/Desktop/PhD/Project/matrix.list_afterQC.rds")
+
+##### Merge the datasets
+SCT_merged <- merge(x=matrix.list[[1]],
+                    y=matrix.list[2:length(matrix.list)],
+                    merge.data=T)
+
+```
+
+
+```{r}
+### subset only the IMPAC study 
+obj_impac <- subset(SCT_merged, subset = Study == "IMPAC")
+
+```
+
+
+
+```{r}
+obj_impac <- NormalizeData(obj_impac, normalization.method = "LogNormalize", scale.factor = 10000)
+```
+
+```{r}
+obj_impac<- FindVariableFeatures(obj_impac, selection.method = "vst", nfeatures = 2000)
+```
+
+```{r}
+library(future)
+
+plan(sequential)  # SUPER important on Mac to avoid fork crashes
+
+options(future.globals.maxSize = 250 * 1024^3) 
+
+obj_impac <- ScaleData(obj_impac)
+```
+
+
+
+```{r}
+obj_impac <- RunPCA(obj_impac, features = VariableFeatures(object = obj_impac))
+```
+
+
+```{r}
+ElbowPlot(obj_impac, ndims = 30)
+```
+
+
+
+
+
+```{r}
+####use SCTransform for normalization
+library(future)
+
+plan(sequential)  # SUPER important on Mac to avoid fork crashes
+
+options(future.globals.maxSize = 200 * 1024^3)  # 200 GB cap if you set R_MAX_VSIZE
+
+SCT_merged <- SCTransform(
+  SCT_merged,
+  assay = "RNA",
+  method = "glmGamPoi",       # faster + less RAM
+  conserve.memory = TRUE,     # key for big objects
+  verbose = TRUE,
+  variable.features.n = 3000,  # reduce if still huge
+  vst.flavor = "v2"  
+)
+
+```
+
+
+
+```{r}
+SCT_merged <- RunPCA(SCT_merged)
+```
+
+
+```{r}
+obj_impac<- RunHarmony(
+  object = obj_impac,
+  group.by.vars = c("orig.ident", "Condition")
+)
+```
+
+
+
+```{r}
+### running PCA
+obj_impac <- RunPCA(obj_impac,npcs = 50, verbose = FALSE)
+
+####Elbowplot
+ElbowPlot(obj_impac, ndims = 30)
+```
+
+
+```{r}
+obj_impac<- RunUMAP(obj_impac, reduction = "harmony", dims = 1:28, verbose = FALSE) %>%
+  FindNeighbors(reduction = "harmony", dims = 1:28, verbose = FALSE)
+```
+
+
+```{r}
+obj_impac <- FindClusters(obj_impac, resolution = 0.9)
+
+Idents(obj_impac) <- obj_impac$RNA_snn_res.0.9
+```
+
+
+```{r}
+options(repr.plot.width=15, repr.plot.height=10)
+p1 <- DimPlot(obj_impac, reduction = "umap", group.by = "orig.ident", label = F, raster=FALSE, shuffle = TRUE)
+ggsave("orig_ident.pdf", p1, width = 7, height = 8)
+
+p2 <- DimPlot(obj_impac, reduction = "umap", label = T, repel = TRUE,raster=FALSE, shuffle = TRUE)
+ggsave("clusters.pdf", p2, width = 7, height = 8)
+
+#p3 <-DimPlot(obj_impac, reduction = "umap", group.by = "Study", label = F,raster=FALSE,shuffle = F) 
+p4 <- DimPlot(obj_impac, reduction = "umap", group.by = "Condition", label = F,raster=FALSE,shuffle = T)
+ggsave("Condition.pdf", p4, width = 7, height = 8)
+
+#p5 <- DimPlot(obj_impac, reduction = "umap", group.by = "Tissue", label = F,raster=FALSE)
+
+
+
+
+p6 <- DimPlot(obj_impac, reduction = "umap", split.by = "orig.ident", label = F, raster=FALSE, shuffle = TRUE)
+ggsave("orig_ident_split.pdf", p6, width = 7, height = 8)
+
+#p7 <-DimPlot(obj_impac, reduction = "umap", split.by = "Study", label = F,raster=FALSE,shuffle = F) 
+
+p8 <- DimPlot(obj_impac, reduction = "umap", split.by = "Condition", label = F,raster=FALSE,shuffle = T)
+ggsave("condition_split.pdf", p8, width = 7, height = 8)
+
+
+#p9 <- DimPlot(obj_impac, reduction = "umap", split.by = "Tissue", label = F,raster=FALSE)
+
+```
+
+
+
+```{r}
+p1
+p2
+p3
+p4
+p5
+p6
+p7
+p8
+p9
+```
+```{r}
+######change  for celltypist... from seurat object to anndata
+devtools::install_github("cellgeni/sceasy")
+BiocManager::install(c("LoomExperiment", "SingleCellExperiment"))
+
+
+library(sceasy)
+library(reticulate)
+Sys.setenv(RETICULATE_PYTHON = "/Users/brendakarumbo/anaconda3/envs/Human_CM/bin/python")
+reticulate::py_discover_config()
+reticulate::use_condaenv('/Users/brendakarumbo/anaconda3/envs/Human_CM/bin/python')
+use_condaenv('/Users/brendakarumbo/anaconda3/envs/Human_CM')
+sceasy::convertFormat(obj_impac, from="seurat", to="anndata",
+                      outFile='/Users/brendakarumbo/Desktop/PhD/IMPAC.h5ad')
+```
+
+
+```{r}
+library(future)
+
+plan(sequential)  # SUPER important on Mac to avoid fork crashes
+
+options(future.globals.maxSize = 200 * 1024^3) 
+####Convert it back to a seurat object
+setwd("~/Desktop/PhD/Project")
+library(reticulate)
+anndata <- import("anndata")
+
+sceasy::convertFormat(
+  obj = "IMPAC_clean.h5ad",
+  from = "anndata",
+  to = "seurat",
+  outFile = "IMPAC.rds"
+)
+
+###get the seurat object
+obj_impac <- readRDS("IMPAC.rds")
+```
+
+
+
+
+
+```{r}
+###space 
+#usethis::edit_r_environ()
+#R_MAX_VSIZE=100Gb
+```
+
+
+####try pan azimuth
+```{r}
+# Installation
+devtools::install_github("satijalab/AzimuthAPI")
+
+
+# View results
+head(pbmc3k@meta.data)
+```
+
+
+
+```{r}
+if (!requireNamespace("remotes")) install.packages("remotes")
+remotes::install_github("satijalab/azimuth", build_vignettes = FALSE)
+
+```
+
+
+
+```{r}
+obj_impac <- UpdateSeuratObject(obj_impac)
+```
+
+
+
+```{r}
+library(AzimuthAPI)
+# Annotate a Seurat object
+obj_impac <- CloudAzimuth(obj_impac)
+```
+
+```{r}
+# View results
+head(obj_impac@meta.data)
+```
+```{r}
+DimPlot(obj_impac, label = T, repel = T, raster = F, group.by = "azimuth_label")+NoLegend()
+```
+
+
+```{r}
+hist(obj_impac$final_level_confidence, breaks = 30, main = "Histogram of Softmax Probabilities",
+    xlab = "Softmax Probability", col = "skyblue", border = "white")
+```
+
+```{r}
+# remove cells with low scores
+obj_impac_qc <- subset(obj_impac, final_level_confidence > 0.5)
+```
+
+
+```{r}
+obj_impac_qc <- RunUMAP(obj_impac_qc, dims = 1:28, reduction = "azimuth_embed", reduction.name = "azimuth_umap")
+
+```
+
+```{r}
+p2 <- DimPlot(obj_impac_qc, group.by = "full_hierarchical_labels", label.size = 1.5, label = T, reduction = "azimuth_umap",
+    repel = TRUE) + NoLegend()
+p2
+```
+
+```{r}
+p3 <- DimPlot(obj_impac_qc, group.by = "final_level_labels", label.size = 2, label = T, reduction = "azimuth_umap",repel = T, raster = FALSE ) +
+    NoLegend()
+p4 <- FeaturePlot(obj_impac_qc, features = "final_level_confidence", reduction = "azimuth_umap")
+p3
+p4
+```
+
+
+
+```{r}
+p5 <- DimPlot(obj_impac_qc, group.by = "azimuth_fine", label.size = 3, label = T, reduction = "azimuth_umap", repel = T, raster = F) +
+    NoLegend()
+p5
+```
+```{r}
+obj_impac_qc<- PrepLabel(obj_impac_qc, "azimuth_fine", "azimuth_fine_filtered", cutoff = 20)
+p7 <- DimPlot(obj_impac_qc, group.by = "azimuth_fine_filtered", label.size = 3, label = T, reduction = "azimuth_umap", repel = T, raster = F) +
+    NoLegend()
+p7
+```
+
+```{r}
+p8 <- DimPlot(obj_impac_qc, group.by = "majority_voting", label.size = 3, label = T, reduction = "azimuth_umap", repel = T, raster = F) +
+    NoLegend()
+p8
+```
+
+```{r}
+meta <- obj_impac_qc@meta.data
+table(is.na(meta$azimuth_broad))
+head(meta$azimuth_broad)
+```
+
+
+```{r}
+obj_impac_qc$adjusted_level_1 <- as.character(obj_impac_qc$azimuth_broad)
+obj_impac_qc$adjusted_level_1[is.na(obj_impac_qc$adjusted_level_1)] <- "Unknown"
+
+obj_impac_qc$azimuth_broad[is.na(obj_impac_qc$azimuth_broad)] <- "Unknown"
+```
+
+```{r}
+plots <- make_azimuth_QC_heatmaps(obj_impac_qc)
+print(length(plots))
+```
+
+
+```{r}
+p9 <- plots[["Immune_Lymphoid cell_1"]]
+print(p9)
+```
+
+
+```{r}
+p10 <-  plots[["Immune_Lymphoid cell_2"]]
+print(p10)
+```
+
+
+
+```{r}
+p11 <- plots[["Immune_Myeloid cell_1"]]
+
+print(p11)
+```
+
+```{r}
+p12 <- plots[["Immune_Myeloid cell_2"]]
+
+print(p12)
+```
+
+
+#####try manual annotation
+```{r}
+cluster.markers <- FindAllMarkers(obj_impac, only.pos=TRUE, test.use="wilcox" , logfc.threshold = 0.5)
+
+obj_impac
+top.markers <- cluster.markers %>%
+    group_by(cluster) %>%
+    slice_max(n = 10, order_by = avg_log2FC)
+
+```
+
+
+
+```{r}
+DimPlot(obj_impac, label = T,repel = T, raster = F )+NoLegend()
+```
+```{r}
+VlnPlot(obj_impac,features = c("NKG7","KLRC1","GZMB","KLRF1","SPON2", "PRF1", "GNLY", "CTSW"),pt.size = 0, ncol = 2)
+```
+
+```{r}
+###gd T cells
+
+VlnPlot(obj_impac,features = c("TRDV2","TRGV9","KLRG1"),pt.size = 0, ncol = 2)
+```
+
+
+```{r}
+####naive Tcells
+VlnPlot(obj_impac,features = c("TRDV2","TRGV9","KLRG1"),pt.size = 0, ncol = 2)
+```
+
+```{r}
+### GZMK CD8 T cells
+ GZMK_CD8_T <- VlnPlot(
+  obj_impac,
+  features = c("GZMK", "CD8A", "CCL5", "NKG7"),
+  pt.size = 0,
+  ncol = 2
+)
+```
+
+```{r}
+### GZMB CD8 T cells
+GZMB_CD8_T <- VlnPlot(
+  obj_impac,
+  features = c("GZMB", "PRF1", "GNLY", "FGFBP2"),
+  pt.size = 0,
+  ncol = 2
+)
+```
+
+
+```{r}
+
+### CD16 NK cells
+CD16_NK <- VlnPlot(
+  merged_seurat,
+  features = c("FCGR3A", "GNLY", "NKG7", "TYROBP"),
+  pt.size = 0,
+  ncol = 2
+)
+```
+
+
+```{r}
+### CD56 NK cells
+CD56_NK<- VlnPlot(
+  merged_seurat,
+  features = c("NKG7", "GNLY", "XCL1", "XCL2"),
+  pt.size = 0,
+  ncol = 2
+)
+```
+
+
+```{r}
+### MAIT cells
+
+MAIT<- VlnPlot(
+  merged_seurat,
+  features = c("TRAV1-2", "KLRB1", "IL7R", "ZBTB16"),
+  pt.size = 0,
+  ncol = 2
+)
+```
+
+
+```{r}
+### gd T cells
+
+gd_T <- VlnPlot(
+  obj_impac,
+  features = c("TRDV2", "TRGV9", "TRDC", "KLRB1"),
+  pt.size = 0,
+  ncol = 2
+)
+```
+
+
+```{r}
+### Treg cells
+Treg<-VlnPlot(
+  merged_seurat,
+  features = c("FOXP3", "IL2RA", "CTLA4", "ICOS"),
+  pt.size = 0,
+  ncol = 2
+)
+```
+
+
+```{r}
+### Memory CD4 T cells
+
+Memory_CD4_T <- VlnPlot(
+  merged_seurat,
+  features = c("IL7R", "CCR7", "LTB", "CD27"),
+  pt.size = 0,
+  ncol = 2
+)
+```
+
+
+```{r}
+### Naive CD4 T cells
+
+Naive_CD4_T<- VlnPlot(
+  merged_seurat,
+  features = c("CCR7", "TCF7", "LEF1", "MAL"),
+  pt.size = 0,
+  ncol = 2
+)
+
+```
+
+
+```{r}
+### Naive CD8 T cells
+
+Naive_CD8_T <- VlnPlot(
+  merged_seurat,
+  features = c("CCR7", "TCF7", "LEF1", "CD8A"),
+  pt.size = 0,
+  ncol = 2
+)
+```
+
+
+```{r}
+### Naive B cells
+
+Naive_B <- VlnPlot(
+  merged_seurat,
+  features = c("MS4A1", "CD79A", "IGHM", "TCL1A"),
+  pt.size = 0,
+  ncol = 2
+)
+```
+
+
+```{r}
+### Memory B cells
+
+Memory_B <- VlnPlot(
+  merged_seurat,
+  features = c("CD27", "FCRL3", "FCRL5", "TNFRSF13B", "CD86"
+),
+  pt.size = 0,
+  ncol = 2
+)
+```
+
+
+```{r}
+### Plasma cells
+
+Plasma_cells <- VlnPlot(
+  merged_seurat,
+  features = c("MZB1", "JCHAIN", "TNFRSF17", "IGHA1"),
+  pt.size = 0,
+  ncol = 2
+)
+```
+
+
+```{r}
+### abT (entry) cells
+
+abT <- VlnPlot(
+  obj_impac,
+  features = c("CD3D", "CD3E", "IL32", "LTB"),
+  pt.size = 0,
+  ncol = 2
+)
+
+```
+
+```{r}
+### MEP
+MEP <- VlnPlot(
+  obj_impac,
+  features = c("GATA2", "PRSS57", "RBPMS", "HOPX"),
+  pt.size = 0,
+  ncol = 2
+)
+
+### HSC
+HSC<- VlnPlot(
+  obj_impac,
+  features = c("CD34", "GATA2", "HOPX", "AVP"),
+  pt.size = 0,
+  ncol = 2
+)
+
+### MPP
+MPP <-VlnPlot(
+  obj_impac,
+  features = c("BAALC", "PRSS57", "SMIM24", "EGFL7"),
+  pt.size = 0,
+  ncol = 2
+)
+
+### CD14 monocyte
+CD14_Monocyte <- VlnPlot(
+  obj_impac,
+  features = c("S100A8", "S100A9", "SLC7A7", "CSF1R"),
+  pt.size = 0,
+  ncol = 2
+)
+
+### Neutrophil
+Neutrophil <- VlnPlot(
+  obj_impac,
+  features = c("CSF3R", "S100A8", "S100A9", "CEACAM8"),
+  pt.size = 0,
+  ncol = 2
+)
+
+### CD16 monocyte
+CD16_monocyte <- VlnPlot(
+  obj_impac,
+  features = c("FCGR3A", "MS4A7", "MTSS1", "PROK2"),
+  pt.size = 0,
+  ncol = 2
+)
+
+### CD14/CD16 monocyte
+Monocyte<- VlnPlot(
+  obj_impac,
+  features = c("FCGR3A", "S100A8", "S100A9", "MS4A7"),
+  pt.size = 0,
+  ncol = 2
+)
+
+### GMP
+GMP<- VlnPlot(
+  obj_impac,
+  features = c("MS4A3", "MPO", "ELANE", "PRTN3"),
+  pt.size = 0,
+  ncol = 2
+)
+
+
+
+### Fetal HBG+ erythrocyte
+erythrocyte <- VlnPlot(
+  obj_impac,
+  features = c("HBB", "HBD", "AHSP", "ALAS2"),
+  pt.size = 0,
+  ncol = 2
+)
+
+### Late hemoglobin+ erythroblast
+erythroblast <- VlnPlot(
+  obj_impac,
+  features = c("HBA1", "HBA2", "ALAS2", "SLC4A1"),
+  pt.size = 0,
+  ncol = 2
+)
+
+### Platelet
+Platelet <- VlnPlot(
+  obj_impac,
+  features = c("PF4", "PPBP", "PF4V1", "ITGB3"),
+  pt.size = 0,
+  ncol = 2
+)
+
+### pDC
+pDC <- VlnPlot(
+  obj_impac,
+  features = c("CLEC4C", "GZMB", "LILRA4", "NIBAN3"),
+  pt.size = 0,
+  ncol = 2
+)
+
+### cDC2
+cDC2 <- VlnPlot(
+  obj_impac,
+  features = c("CD1C", "FCER1A", "CLEC10A", "HLA-DQA1"),
+  pt.size = 0,
+  ncol = 2
+)
+
+### cDC1
+cDC1 <- VlnPlot(
+  obj_impac,
+  features = c("XCR1", "CLEC9A", "CADM1", "C1orf54"),
+  pt.size = 0,
+  ncol = 2
+)
+
+```
+
+
+```{r}
+# Map seurat_clusters -> annotated cell types
+obj_impac$celltype <- recode(
+  as.character(obj_impac$seurat_clusters),
+
+  `0`  = "Neutrophils",
+  `1`  = "Naive CD4 T cells",
+  `2`  = "Plasma cells",
+  `3`  = "Memory B cells",
+  `4`  = "CD16 Monocytes",
+  `5`  = "gd T cells",
+  `6`  = "NK cells",
+  `7`  = "CD14 Monocytes",
+  `8`  = "Naive CD8 T cells",
+  `9`  = "Neutrophils",
+  `10` = "Th2 cells",
+  `11` = "Plasma cells",
+  `12` = "Plasmablasts",
+  `13` = "CD16 Monocytes",
+  `14` = "Erythrocytes",
+  `15` = "Plasma cells",
+  `16` = "Tregs",
+  `17` = "HSC",
+  `18` = "Platelets",
+  `19` = "CD14 Monocytes",
+  `20` = "DC",
+  `21` = "Naive B cells",
+  `22` = "pDC",
+  `23` = "Plasma cells",
+  `24` = "Plasma cells",
+  `25` = "Plasma cells",
+
+  .default = as.character(obj_impac$seurat_clusters)  # keep any others unchanged
+)
+
+# Use the annotated labels as identities
+Idents(obj_impac) <- "celltype"
+```
+
+
+```{r}
+DimPlot(obj_impac, group.by = "celltype", label = TRUE, repel = TRUE)
+
+```
+```{r}
+
+#### extract the Tcells
+tcell_obj <- subset(obj_impac, subset = celltype == c("Th2 cells","Naive CD4 T cells", "Tregs","Naive CD8 T cells","gd T cells"))
+
+DefaultAssay(tcell_obj) <- "RNA"
+ 
+# 2. Normalize / scale if needed
+tcell_obj <- NormalizeData(tcell_obj)
+tcell_obj <- FindVariableFeatures(tcell_obj)
+tcell_obj <- ScaleData(tcell_obj)
+
+ 
+# 3. Run PCA
+tcell_obj <- RunPCA(tcell_obj)
+ElbowPlot(tcell_obj, ndims = 40)
+
+ 
+# 4. Find neighbors and clusters
+tcell_obj <- FindNeighbors(tcell_obj, dims = 1:20)
+
+
+# 5. Run UMAP for visualization
+tcell_obj <- RunUMAP(tcell_obj, dims = 1:20)
+
+
+# 6. 
+tcell_obj <- FindClusters(tcell_obj, resolution = 0.5)
+
+```
+
+
+
+```{r}
+#Use STARCAT to get the Tcell clusters
+#These are my notes about it:
+#Seurat handling:
+data_dir <- "/Users/brendakarumbo/Desktop/PhD/Project/Tcells_4starCat"
+ 
+
+counts = tcell_obj@assays$RNA@counts
+
+counts[1:5, 1:5]
+
+ 
+
+# Output counts matrix
+
+Matrix::writeMM(counts, "/Users/brendakarumbo/Desktop/PhD/Project/Tcells_4starCat/matrix.mtx")
+
+
+library(R.utils)
+gzip("/Users/brendakarumbo/Desktop/PhD/Project/Tcells_4starCat/matrix.mtx")
+
+ 
+
+# Output cell barcodes
+
+barcodes <- colnames(counts)
+
+write_delim(as.data.frame(barcodes), "/Users/brendakarumbo/Desktop/PhD/Project/Tcells_4starCat/barcodes.tsv", col_names = FALSE)
+
+gzip("/Users/brendakarumbo/Desktop/PhD/Project/Tcells_4starCat/barcodes.tsv")
+
+ 
+
+# Output feature names
+
+gene_names <- rownames(counts)
+
+features <- data.frame("gene_id" = gene_names,"gene_name" = gene_names,type = "Gene Expression")
+
+write_delim(as.data.frame(features),delim = "\t", "/Users/brendakarumbo/Desktop/PhD/Project/Tcells_4starCat/features.tsv", col_names = FALSE)
+
+gzip("/Users/brendakarumbo/Desktop/PhD/Project/Tcells_4starCat/features.tsv")
+
+```
+
+
+```{r}
+output_name = "Tcells_test"
+data_dir = "/Users/brendakarumbo/Desktop/PhD/Project/050225_test1"
+
+###read into R
+usage = read.table("/Users/brendakarumbo/Desktop/PhD/Project/050225_test1/Tcells_test.rf_usage_normalized.txt")
+
+scores = read.table("/Users/brendakarumbo/Desktop/PhD/Project/050225_test1/Tcells_test.scores.txt")
+```
+
+
+
+```{r}
+###Add the labels
+tcell_obj$starcat_label <- scores$Multinomial_Label
+
+Idents(tcell_obj) <- tcell_obj$starcat_label
+
+tcell_obj$new_cell_type <- Idents(tcell_obj)
+
+clusters <- tcell_obj@meta.data$new_cell_type
+names(clusters) <- colnames(tcell_obj) # Use colnames(seurat_subset) for cell barcodes
+```
+
+
+```{r}
+obj_impac@meta.data$new_labels <- clusters[colnames(obj_impac)]
+
+
+
+obj_impac@meta.data$celltype <- as.character(obj_impac@meta.data$celltype) # Convert to character if it was a factor
+obj_impac@meta.data$new_labels <- as.character(obj_impac@meta.data$new_labels) # Convert new_labels to character
+
+# Replace NA in new_labels with values from original_labels
+obj_impac@meta.data$new_labels[is.na(obj_impac@meta.data$new_labels)] <- obj_impac@meta.data$celltype[is.na(obj_impac@meta.data$new_labels)]
+
+
+```
+
+
+```{r}
+tcell_obj$azimuth_label
+tcell_obj$majority_voting
+
+```
+
+
+
+####seurat reference mapping
+```{r}
+library(Seurat)
+library(ggplot2)
+library(patchwork)
+```
+
+
+```{r}
+options(SeuratData.repo.use = "http://seurat.nygenome.org")
+```
+
+
+```{r}
+# Load the entire h5Seurat file into an R Seurat object
+reference <- LoadH5Seurat("/Users/brendakarumbo/Desktop/PhD/Project/multi.h5seurat")
+
+```
+
+```{r}
+reference <- readRDS("/Users/brendakarumbo/Desktop/PhD/Project/pbmc_multimodal_2023.rds")
+```
+
+```{r}
+DimPlot(object = reference, reduction = "wnn.umap", group.by = "celltype.l2", label = TRUE, label.size = 3, repel = TRUE, raster = F) + NoLegend()
+```
+
+```{r}
+anchors <- FindTransferAnchors(
+  reference = reference,
+  query = merged_seurat,
+  normalization.method = "SCT",
+  reference.reduction = "spca",
+  dims = 1:30
+)
+```
+
+
+```{r}
+obj_impac <- MapQuery(
+  anchorset = anchors,
+  query = obj_impac,
+  reference = reference,
+  refdata = list(
+    celltype.l1 = "celltype.l1",
+    celltype.l2 = "celltype.l2",
+    predicted_ADT = "ADT"
+  ),
+  reference.reduction = "spca", 
+  reduction.model = "wnn.umap"
+)
+```
+
+```{r}
+
+```
+
+```{r}
+p1 = DimPlot(obj_impac, reduction = "ref.umap", group.by = "predicted.celltype.l1", label = TRUE, label.size = 3, repel = TRUE) + NoLegend()
+p3 = DimPlot(obj_impac, reduction = "ref.umap", group.by = "predicted.celltype.l2", label = TRUE, label.size = 3 ,repel = TRUE) + NoLegend()
+p1 + p2
+```
+
+
+
+```{r}
+p3
+```
+
+```{r}
+DimPlot(obj_impac, reduction = "ref.umap", group.by = "azimuth_label", label = TRUE, label.size = 3 ,repel = TRUE) + NoLegend()
+```
+```{r}
+
+DimPlot(obj_impac, reduction = "ref.umap", group.by = "majority_voting", label = TRUE, label.size = 3 ,repel = TRUE) + NoLegend()
+```
+```{r}
+DimPlot(obj_impac, reduction = "ref.umap", group.by = "celltype", label = TRUE, label.size = 3 ,repel = TRUE) + NoLegend()
+```
+```{r}
+
+DimPlot(obj_impac, reduction = "ref.umap", group.by = "predicted.celltype.l2", label = TRUE, label.size = 3 ,repel = TRUE, split.by = "Condition") + NoLegend()
+
+```
+```{r}
+Human_data$predicted.id <- Idents(Human_data)
+```
+
+
+
+```{r}
+#make a new column for the celltypes
+Human_data$celltypes <- "unassigned"
+```
+
+
+```{r}
+####Compress some of the celltypes to make the plot more readable
+#make sure all the celltypes have at least 50 cells 
+Human_data$celltypes[Human_data$predicted.id== "NK_CD56bright"] <- "NK"
+Human_data$celltypes[Human_data$predicted.id== "ASDC"] <- "DC"
+Human_data$celltypes[Human_data$predicted.id== "cDC1"] <- "DC"
+Human_data$celltypes[Human_data$predicted.id== "cDC2"] <- "DC"
+Human_data$celltypes[Human_data$predicted.id== "Plasmablast"] <- "Plasma cell"
+Human_data$celltypes[Human_data$predicted.id== "CD14 Mono"] <- "CD14 Mono"
+Human_data$celltypes[Human_data$predicted.id== "CD4 TCM"] <- "CD4 TCM"
+Human_data$celltypes[Human_data$predicted.id== "CD8 TCM"] <- "CD8 TCM"
+Human_data$celltypes[Human_data$predicted.id== "dnT"] <- "dnT"
+Human_data$celltypes[Human_data$predicted.id== "HSPC"] <- "HSPC"
+Human_data$celltypes[Human_data$predicted.id== "Neutrophil Precursor"] <- "Neutrophil Precursor"
+Human_data$celltypes[Human_data$predicted.id== "pDC"] <- "pDC"
+Human_data$celltypes[Human_data$predicted.id== "Platelet"] <- "Platelet"
+Human_data$celltypes[Human_data$predicted.id== "B intermediate"] <- "B intermediate"
+Human_data$celltypes[Human_data$predicted.id== "CD16 Mono"] <- "CD16 Mono"
+Human_data$celltypes[Human_data$predicted.id== "CD4 TEM"] <- "CD4 TEM"
+Human_data$celltypes[Human_data$predicted.id== "CD8 TEM"] <- "CD8 TEM"
+Human_data$celltypes[Human_data$predicted.id== "Eryth"] <- "Eryth"
+Human_data$celltypes[Human_data$predicted.id== "ILC"] <- "ILC"
+Human_data$celltypes[Human_data$predicted.id== "MAIT"] <- "MAIT"
+Human_data$celltypes[Human_data$predicted.id== "NK"] <- "NK"
+Human_data$celltypes[Human_data$predicted.id== "NK Proliferating"] <- "NK Proliferating"
+Human_data$celltypes[Human_data$predicted.id== "Treg"] <- "Treg"
+Human_data$celltypes[Human_data$predicted.id== "CD4 Proliferating"] <- "CD4 Proliferating"
+Human_data$celltypes[Human_data$predicted.id== "CD8 Proliferating"] <- "CD8 Proliferating"
+Human_data$celltypes[Human_data$predicted.id== "Plasma cell"] <- "Plasma cell"
+Human_data$celltypes[Human_data$predicted.id== "B memory"] <- "B memory"
+Human_data$celltypes[Human_data$predicted.id== "CD4 Naive"] <- "CD4 Naive"
+Human_data$celltypes[Human_data$predicted.id== "CD8 Naive"] <- "CD8 Naive"
+Human_data$celltypes[Human_data$predicted.id== "B naive"] <- "B naive"
+Human_data$celltypes[Human_data$predicted.id== "gdT"] <- "gdT"
+Human_data$celltypes[Human_data$predicted.id== "Neutrophil"] <- "Neutrophil"
+Human_data$celltypes[Human_data$predicted.id== "Neutrophil Precursor"] <- "Neutrophil Precursor"
+Human_data$celltypes[Human_data$predicted.id== "GMP"] <- "GMP"
+Human_data$celltypes[Human_data$predicted.id== "Plasma cell precursor"] <- "Plasma cell precursor"
+Human_data$celltypes[Human_data$predicted.id== "CD4 CTL"] <- "CD4 CTL"
+
+```
+
