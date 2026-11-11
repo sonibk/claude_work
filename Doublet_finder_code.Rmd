@@ -1,0 +1,1362 @@
+---
+title: "Doublet_finder_code"
+author: "Brenda Karumbo"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+setwd("/Users/brendakarumbo/Desktop/PhD/Project/IM_samples/processed_samples_with_labels")
+```
+
+
+#### Read in the files that are  processed
+### note these were basic processing (nfeatures, mito percentage )
+```{r}
+processed_matrix <- readRDS( "/Users/brendakarumbo/Desktop/PhD/Project/IM_samples/processed_samples_list.rds")
+```
+
+
+
+```{r}
+samples_to_remove <- c(
+  "HC21",
+  "IM168",
+  "IM307",
+  "IM152",
+  "IM168_24",
+  "IM189_24",
+  "IM196_24",
+  "IM217_24"
+)
+
+processed_matrix <- processed_matrix[
+  !names(processed_matrix) %in% samples_to_remove
+]
+```
+
+
+### These samples will not be incuded in the down stream analysis for having weird cell proportions and not belonging to the admission group and hence confounding
+```{r}
+
+  c("HC21",
+  "IM168",
+  "IM307",
+  "IM152",
+  "IM168_24",
+  "IM189_24",
+  "IM196_24",
+  "IM217_24")
+```
+
+
+### Get a list of the samples 
+```{r}
+names(processed_matrix)
+```
+
+```{r}
+
+run_doubletfinder <- function(
+    seu,
+    PCs = 1:10,
+    pN = 0.25,
+    pK = 0.09,
+    doublet_rate = 0.075,
+    sct = FALSE,
+    annotations = NULL
+) {
+
+  library(Seurat)
+  library(DoubletFinder)
+
+  ## 1. pK identification --------------------------------------------
+
+  sweep.res.list <- paramSweep(
+    seu,
+    PCs = PCs,
+    sct = sct
+  )
+
+  sweep.stats <- summarizeSweep(
+    sweep.res.list,
+    GT = FALSE
+  )
+
+  bcmvn <- find.pK(sweep.stats)
+
+  ## 2. Homotypic doublet proportion ---------------------------------
+
+  if (is.null(annotations)) {
+    annotations <- seu@meta.data$seurat_clusters
+  }
+
+  homotypic.prop <- modelHomotypic(annotations)
+
+  ## 3. Expected doublets --------------------------------------------
+
+  nExp_poi <- round(
+    doublet_rate * nrow(seu@meta.data)
+  )
+
+  nExp_poi.adj <- round(
+    nExp_poi * (1 - homotypic.prop)
+  )
+
+  ## 4. First DoubletFinder run (unadjusted) -------------------------
+
+  seu <- doubletFinder(
+    seu,
+    PCs = PCs,
+    pN = pN,
+    pK = pK,
+    nExp = nExp_poi,
+    reuse.pANN = NULL,
+    sct = sct
+  )
+
+  ## Identify the generated pANN column dynamically
+
+  pann_col <- grep(
+    "^pANN_",
+    colnames(seu@meta.data),
+    value = TRUE
+  )
+
+  pann_col <- pann_col[length(pann_col)]
+
+  ## 5. Second DoubletFinder run (homotypic adjusted) ----------------
+
+  seu <- doubletFinder(
+    seu,
+    PCs = PCs,
+    pN = pN,
+    pK = pK,
+    nExp = nExp_poi.adj,
+    reuse.pANN = pann_col,
+    sct = sct
+  )
+
+  ## 6. Return results ------------------------------------------------
+
+  return(list(
+    seurat_object = seu,
+    sweep_stats = sweep.stats,
+    bcmvn = bcmvn,
+    homotypic_prop = homotypic.prop,
+    nExp_poi = nExp_poi,
+    nExp_poi_adj = nExp_poi.adj,
+    pANN_column = pann_col
+  ))
+}
+
+```
+
+
+#### predict homotypic doublets 
+```{r}
+HC20 <- readRDS("/Users/brendakarumbo/Desktop/PhD/Project/IM_samples/processed_samples_with_labels/hc20_processed_with_labels.rds")
+
+```
+
+
+```{r}
+result_hc20 <- run_doubletfinder(
+  seu = HC20,
+  PCs = 1:20,
+  pN = 0.25,
+  pK = 0.09,
+  doublet_rate = 0.031,
+  sct = FALSE,
+  annotations = HC20@meta.data$seurat_clusters
+)
+```
+
+
+
+```{r}
+####Extract the results
+HC20 <- result_hc20$seurat_object
+
+result_hc20$bcmvn
+
+result_hc20$homotypic_prop
+
+result_hc20$nExp_poi
+
+result_hc20$nExp_poi_adj
+```
+
+
+```{r}
+###see the doublet tables 
+table(
+  HC20[[grep(
+    "^DF.classifications_",
+    colnames(HC20@meta.data),
+    value = TRUE
+  )[2]]]
+)
+
+
+HC20$doublet_classification <- HC20$DF.classifications_0.25_0.09_152
+```
+
+
+```{r}
+library(patchwork)
+
+df_cols <- grep(
+  "^DF.classifications_",
+  colnames(HC20@meta.data),
+  value = TRUE
+)
+
+p1 <- DimPlot(
+  HC20,
+  reduction = "umap",
+  group.by = df_cols[1],
+  cols = c("Singlet" = "grey80", "Doublet" = "red")
+) + ggtitle("Unadjusted doublets")
+
+p2 <- DimPlot(
+  HC20,
+  reduction = "umap",
+  group.by = df_cols[2],
+  cols = c("Singlet" = "grey80", "Doublet" = "red")
+) + ggtitle("Homotypic-adjusted doublets")
+
+p1 + p2
+```
+
+
+###"HC32"
+```{r}
+HC32 <- readRDS("/Users/brendakarumbo/Desktop/PhD/Project/IM_samples/processed_samples_with_labels/hc32_processed_with_labels.rds")
+```
+
+
+```{r, message=FALSE}
+result_hc32 <- run_doubletfinder(
+  seu = HC32,
+  PCs = 1:20,
+  pN = 0.25,
+  pK = 0.09,
+  doublet_rate = 0.031,
+  sct = FALSE,
+  annotations = HC32@meta.data$seurat_clusters
+)
+```
+
+
+```{r, message=FALSE}
+####Extract the results
+HC32 <- result_hc32$seurat_object
+
+result_hc32$bcmvn
+
+result_hc32$homotypic_prop
+
+result_hc32$nExp_poi
+
+result_hc32$nExp_poi_adj
+```
+
+```{r}
+###see the doublet tables 
+table(
+  HC32[[grep(
+    "^DF.classifications_",
+    colnames(HC32@meta.data),
+    value = TRUE
+  )[2]]]
+)
+```
+
+
+```{r}
+HC32$doublet_classification <- HC32$DF.classifications_0.25_0.09_115
+```
+
+
+```{r}
+library(patchwork)
+
+df_cols <- grep(
+  "^DF.classifications_",
+  colnames(HC32@meta.data),
+  value = TRUE
+)
+
+p1 <- DimPlot(
+  HC32,
+  reduction = "umap",
+  group.by = df_cols[1],
+  cols = c("Singlet" = "grey80", "Doublet" = "red")
+) + ggtitle("Unadjusted doublets")
+
+p2 <- DimPlot(
+  HC32,
+  reduction = "umap",
+  group.by = df_cols[2],
+  cols = c("Singlet" = "grey80", "Doublet" = "red")
+) + ggtitle("Homotypic-adjusted doublets")
+
+p1 + p2
+```
+
+
+## "HC34"
+```{r}
+HC34 <- readRDS("/Users/brendakarumbo/Desktop/PhD/Project/IM_samples/processed_samples_with_labels/hc34_processed_with_labels.rds")
+```
+
+
+```{r, message=FALSE}
+result_hc34 <- run_doubletfinder(
+  seu = HC34,
+  PCs = 1:16,
+  pN = 0.25,
+  pK = 0.09,
+  doublet_rate = 0.016,
+  sct = FALSE,
+  annotations = HC34@meta.data$seurat_clusters
+)
+```
+
+
+```{r, message=FALSE}
+####Extract the results
+HC34 <- result_hc34$seurat_object
+
+result_hc34$bcmvn
+
+result_hc34$homotypic_prop
+
+result_hc34$nExp_poi
+
+result_hc34$nExp_poi_adj
+```
+```{r}
+###see the doublet tables 
+table(
+  HC34[[grep(
+    "^DF.classifications_",
+    colnames(HC34@meta.data),
+    value = TRUE
+  )[2]]]
+)
+```
+
+```{r}
+HC34$doublet_classification <- HC34$DF.classifications_0.25_0.09_33
+```
+
+
+```{r}
+library(patchwork)
+
+df_cols <- grep(
+  "^DF.classifications_",
+  colnames(HC34@meta.data),
+  value = TRUE
+)
+
+p1 <- DimPlot(
+  HC34,
+  reduction = "umap",
+  group.by = df_cols[1],
+  cols = c("Singlet" = "grey80", "Doublet" = "red")
+) + ggtitle("Unadjusted doublets")
+
+p2 <- DimPlot(
+  HC34,
+  reduction = "umap",
+  group.by = df_cols[2],
+  cols = c("Singlet" = "grey80", "Doublet" = "red")
+) + ggtitle("Homotypic-adjusted doublets")
+
+p1 + p2
+```
+
+
+####"HC41" 
+```{r}
+HC41 <- readRDS("/Users/brendakarumbo/Desktop/PhD/Project/IM_samples/processed_samples_with_labels/hc41_processed_with_labels.rds")
+```
+
+```{r, message=FALSE}
+result_hc41 <- run_doubletfinder(
+  seu = HC41,
+  PCs = 1:20,
+  pN = 0.25,
+  pK = 0.09,
+  doublet_rate = 0.016,
+  sct = FALSE,
+  annotations = HC34@meta.data$seurat_clusters
+)
+```
+```{r}
+####Extract the results
+HC41 <- result_hc41$seurat_object
+
+result_hc41$bcmvn
+
+result_hc41$homotypic_prop
+
+result_hc41$nExp_poi
+
+result_hc41$nExp_poi_adj
+```
+```{r}
+###see the doublet tables 
+table(
+  HC41[[grep(
+    "^DF.classifications_",
+    colnames(HC41@meta.data),
+    value = TRUE
+  )[2]]]
+)
+```
+
+```{r}
+HC41$doublet_classification <- HC41$DF.classifications_0.25_0.09_80
+```
+
+
+```{r}
+library(patchwork)
+
+df_cols <- grep(
+  "^DF.classifications_",
+  colnames(HC41@meta.data),
+  value = TRUE
+)
+
+p1 <- DimPlot(
+  HC41,
+  reduction = "umap",
+  group.by = df_cols[1],
+  cols = c("Singlet" = "grey80", "Doublet" = "red")
+) + ggtitle("Unadjusted doublets")
+
+p2 <- DimPlot(
+  HC41,
+  reduction = "umap",
+  group.by = df_cols[2],
+  cols = c("Singlet" = "grey80", "Doublet" = "red")
+) + ggtitle("Homotypic-adjusted doublets")
+
+p1 + p2
+```
+
+###"IM181"
+```{r}
+IM181 <- readRDS("/Users/brendakarumbo/Desktop/PhD/Project/IM_samples/processed_samples_with_labels/IM181_processed_with_labels.rds")
+```
+
+
+```{r, message=FALSE}
+result_IM181 <- run_doubletfinder(
+  seu = IM181,
+  PCs = 1:20,
+  pN = 0.25,
+  pK = 0.09,
+  doublet_rate = 0.016,
+  sct = FALSE,
+  annotations = IM181@meta.data$seurat_clusters
+)
+
+```
+
+```{r, message=FALSE}
+####Extract the results
+IM181 <- result_IM181$seurat_object
+
+result_IM181$bcmvn
+
+result_IM181$homotypic_prop
+
+result_IM181$nExp_poi
+
+result_IM181$nExp_poi_adj
+```
+
+
+```{r}
+###see the doublet tables 
+table(
+  IM181[[grep(
+    "^DF.classifications_",
+    colnames(IM181@meta.data),
+    value = TRUE
+  )[2]]]
+)
+```
+
+```{r}
+IM181$doublet_classification <- IM181$DF.classifications_0.25_0.09_41
+```
+
+```{r}
+library(patchwork)
+
+df_cols <- grep(
+  "^DF.classifications_",
+  colnames(IM181@meta.data),
+  value = TRUE
+)
+
+p1 <- DimPlot(
+  IM181,
+  reduction = "umap",
+  group.by = df_cols[1],
+  cols = c("Singlet" = "grey80", "Doublet" = "red")
+) + ggtitle("Unadjusted doublets")
+
+p2 <- DimPlot(
+  IM181,
+  reduction = "umap",
+  group.by = df_cols[2],
+  cols = c("Singlet" = "grey80", "Doublet" = "red")
+) + ggtitle("Homotypic-adjusted doublets")
+
+p1 + p2
+```
+
+### "IM182"
+```{r}
+IM182 <- readRDS("/Users/brendakarumbo/Desktop/PhD/Project/IM_samples/processed_samples_with_labels/IM182_processed_with_labels.rds")
+```
+
+
+```{r, message=FALSE}
+result_IM182 <- run_doubletfinder(
+  seu = IM182,
+  PCs = 1:20,
+  pN = 0.25,
+  pK = 0.09,
+  doublet_rate = 0.08,
+  sct = FALSE,
+  annotations = IM182@meta.data$seurat_clusters
+)
+
+```
+```{r}
+####Extract the results
+IM182 <- result_IM182$seurat_object
+
+result_IM182$bcmvn
+
+result_IM182$homotypic_prop
+
+result_IM182$nExp_poi
+
+result_IM182$nExp_poi_adj
+```
+```{r}
+###see the doublet tables 
+table(
+  IM182[[grep(
+    "^DF.classifications_",
+    colnames(IM182@meta.data),
+    value = TRUE
+  )[2]]]
+)
+```
+```{r}
+IM182$doublet_classification <- IM182$DF.classifications_0.25_0.09_505
+```
+
+```{r}
+library(patchwork)
+
+df_cols <- grep(
+  "^DF.classifications_",
+  colnames(IM182@meta.data),
+  value = TRUE
+)
+
+p1 <- DimPlot(
+  IM182,
+  reduction = "umap",
+  group.by = df_cols[1],
+  cols = c("Singlet" = "grey80", "Doublet" = "red")
+) + ggtitle("Unadjusted doublets")
+
+p2 <- DimPlot(
+  IM182,
+  reduction = "umap",
+  group.by = df_cols[2],
+  cols = c("Singlet" = "grey80", "Doublet" = "red")
+) + ggtitle("Homotypic-adjusted doublets")
+
+p1 + p2
+```
+
+####"IM184"
+```{r}
+IM184 <- readRDS("/Users/brendakarumbo/Desktop/PhD/Project/IM_samples/processed_samples_with_labels/IM184_processed_with_labels.rds")
+```
+
+
+
+```{r, message=FALSE}
+result_IM184 <- run_doubletfinder(
+  seu = IM184,
+  PCs = 1:22,
+  pN = 0.25,
+  pK = 0.09,
+  doublet_rate = 0.08,
+  sct = FALSE,
+  annotations = IM184@meta.data$seurat_clusters
+)
+
+```
+
+```{r}
+####Extract the results
+IM184 <- result_IM184$seurat_object
+
+result_IM184$bcmvn
+
+result_IM184$homotypic_prop
+
+result_IM184$nExp_poi
+
+result_IM184$nExp_poi_adj
+```
+
+```{r}
+###see the doublet tables 
+table(
+  IM184[[grep(
+    "^DF.classifications_",
+    colnames(IM184@meta.data),
+    value = TRUE
+  )[2]]]
+)
+```
+
+```{r}
+IM184$doublet_classification <- IM184$DF.classifications_0.25_0.09_586
+```
+
+
+```{r}
+library(patchwork)
+
+df_cols <- grep(
+  "^DF.classifications_",
+  colnames(IM184@meta.data),
+  value = TRUE
+)
+
+p1 <- DimPlot(
+  IM184,
+  reduction = "umap",
+  group.by = df_cols[1],
+  cols = c("Singlet" = "grey80", "Doublet" = "red")
+) + ggtitle("Unadjusted doublets")
+
+p2 <- DimPlot(
+  IM184,
+  reduction = "umap",
+  group.by = df_cols[2],
+  cols = c("Singlet" = "grey80", "Doublet" = "red")
+) + ggtitle("Homotypic-adjusted doublets")
+
+p1 + p2
+```
+#### "IM189"
+```{r}
+IM189 <- readRDS("/Users/brendakarumbo/Desktop/PhD/Project/IM_samples/processed_samples_with_labels/IM189_processed_with_labels.rds")
+```
+
+```{r, message=FALSE}
+result_IM189 <- run_doubletfinder(
+  seu = IM189,
+  PCs = 1:22,
+  pN = 0.25,
+  pK = 0.09,
+  doublet_rate = 0.031,
+  sct = FALSE,
+  annotations = IM189@meta.data$seurat_clusters
+)
+
+```
+```{r}
+####Extract the results
+IM189 <- result_IM189$seurat_object
+
+result_IM189$bcmvn
+
+result_IM189$homotypic_prop
+
+result_IM189$nExp_poi
+
+result_IM189$nExp_poi_adj
+```
+```{r}
+###see the doublet tables 
+table(
+  IM189[[grep(
+    "^DF.classifications_",
+    colnames(IM189@meta.data),
+    value = TRUE
+  )[2]]]
+)
+```
+
+```{r}
+IM189$doublet_classification <- IM189$DF.classifications_0.25_0.09_125
+```
+
+```{r}
+library(patchwork)
+
+df_cols <- grep(
+  "^DF.classifications_",
+  colnames(IM189@meta.data),
+  value = TRUE
+)
+
+p1 <- DimPlot(
+  IM189,
+  reduction = "umap",
+  group.by = df_cols[1],
+  cols = c("Singlet" = "grey80", "Doublet" = "red")
+) + ggtitle("Unadjusted doublets")
+
+p2 <- DimPlot(
+  IM189,
+  reduction = "umap",
+  group.by = df_cols[2],
+  cols = c("Singlet" = "grey80", "Doublet" = "red")
+) + ggtitle("Homotypic-adjusted doublets")
+
+p1 + p2
+```
+
+
+####"IM196"
+```{r}
+IM196 <- readRDS("/Users/brendakarumbo/Desktop/PhD/Project/IM_samples/processed_samples_with_labels/IM196_processed_with_labels.rds")
+```
+
+
+```{r, message=FALSE}
+result_IM196 <- run_doubletfinder(
+  seu = IM196,
+  PCs = 1:20,
+  pN = 0.25,
+  pK = 0.09,
+  doublet_rate = 0.08,
+  sct = FALSE,
+  annotations = IM196@meta.data$seurat_clusters
+)
+
+```
+```{r}
+####Extract the results
+IM196 <- result_IM196$seurat_object
+
+result_IM196$bcmvn
+
+result_IM196$homotypic_prop
+
+result_IM196$nExp_poi
+
+result_IM196$nExp_poi_adj
+```
+
+```{r}
+###see the doublet tables 
+table(
+  IM196[[grep(
+    "^DF.classifications_",
+    colnames(IM196@meta.data),
+    value = TRUE
+  )[2]]]
+)
+```
+```{r}
+IM196$doublet_classification <- IM196$DF.classifications_0.25_0.09_568
+```
+
+
+```{r}
+library(patchwork)
+
+df_cols <- grep(
+  "^DF.classifications_",
+  colnames(IM196@meta.data),
+  value = TRUE
+)
+
+p1 <- DimPlot(
+  IM196,
+  reduction = "umap",
+  group.by = df_cols[1],
+  cols = c("Singlet" = "grey80", "Doublet" = "red")
+) + ggtitle("Unadjusted doublets")
+
+p2 <- DimPlot(
+  IM196,
+  reduction = "umap",
+  group.by = df_cols[2],
+  cols = c("Singlet" = "grey80", "Doublet" = "red")
+) + ggtitle("Homotypic-adjusted doublets")
+
+p1 + p2
+```
+
+#### "IM217"
+```{r}
+IM217 <- readRDS("/Users/brendakarumbo/Desktop/PhD/Project/IM_samples/processed_samples_with_labels/IM217_processed_with_labels.rds")
+```
+
+
+```{r, message=FALSE}
+result_IM217 <- run_doubletfinder(
+  seu = IM217,
+  PCs = 1:20,
+  pN = 0.25,
+  pK = 0.09,
+  doublet_rate = 0.016,
+  sct = FALSE,
+  annotations = IM217@meta.data$seurat_clusters
+)
+
+```
+
+
+
+```{r}
+####Extract the results
+IM217 <- result_IM217$seurat_object
+
+result_IM217$bcmvn
+
+result_IM217$homotypic_prop
+
+result_IM217$nExp_poi
+
+result_IM217$nExp_poi_adj
+```
+```{r}
+###see the doublet tables 
+table(
+  IM217[[grep(
+    "^DF.classifications_",
+    colnames(IM217@meta.data),
+    value = TRUE
+  )[2]]]
+)
+```
+
+```{r}
+IM217$doublet_classification <- IM217$DF.classifications_0.25_0.09_28
+```
+
+
+```{r}
+library(patchwork)
+
+df_cols <- grep(
+  "^DF.classifications_",
+  colnames(IM217@meta.data),
+  value = TRUE
+)
+
+p1 <- DimPlot(
+  IM217,
+  reduction = "umap",
+  group.by = df_cols[1],
+  cols = c("Singlet" = "grey80", "Doublet" = "red")
+) + ggtitle("Unadjusted doublets")
+
+p2 <- DimPlot(
+  IM217,
+  reduction = "umap",
+  group.by = df_cols[2],
+  cols = c("Singlet" = "grey80", "Doublet" = "red")
+) + ggtitle("Homotypic-adjusted doublets")
+
+p1 + p2
+```
+
+###"IM166"
+```{r}
+IM166 <- readRDS("/Users/brendakarumbo/Desktop/PhD/Project/IM_samples/processed_samples_with_labels/IM166_processed_with_labels.rds")
+```
+
+
+```{r, message=FALSE}
+result_IM166 <- run_doubletfinder(
+  seu = IM166,
+  PCs = 1:20,
+  pN = 0.25,
+  pK = 0.09,
+  doublet_rate = 0.016,
+  sct = FALSE,
+  annotations = IM166@meta.data$seurat_clusters
+)
+
+```
+
+
+
+```{r}
+####Extract the results
+IM166 <- result_IM166$seurat_object
+
+result_IM166$bcmvn
+
+result_IM166$homotypic_prop
+
+result_IM166$nExp_poi
+
+result_IM166$nExp_poi_adj
+```
+
+
+
+```{r}
+###see the doublet tables 
+table(
+  IM166[[grep(
+    "^DF.classifications_",
+    colnames(IM166@meta.data),
+    value = TRUE
+  )[2]]]
+)
+```
+
+
+```{r}
+IM166$doublet_classification <- IM166$DF.classifications_0.25_0.09_37
+```
+
+
+```{r}
+library(patchwork)
+
+df_cols <- grep(
+  "^DF.classifications_",
+  colnames(IM166@meta.data),
+  value = TRUE
+)
+
+p1 <- DimPlot(
+  IM166,
+  reduction = "umap",
+  group.by = df_cols[1],
+  cols = c("Singlet" = "grey80", "Doublet" = "red")
+) + ggtitle("Unadjusted doublets")
+
+p2 <- DimPlot(
+  IM166,
+  reduction = "umap",
+  group.by = df_cols[2],
+  cols = c("Singlet" = "grey80", "Doublet" = "red")
+) + ggtitle("Homotypic-adjusted doublets")
+
+p1 + p2
+```
+
+
+### "IM188"
+```{r}
+IM188 <- readRDS("/Users/brendakarumbo/Desktop/PhD/Project/IM_samples/processed_samples_with_labels/IM188_processed_with_labels.rds")
+```
+
+
+```{r, message=FALSE}
+result_IM188 <- run_doubletfinder(
+  seu = IM188,
+  PCs = 1:20,
+  pN = 0.25,
+  pK = 0.09,
+  doublet_rate = 0.031,
+  sct = FALSE,
+  annotations = IM188@meta.data$seurat_clusters
+)
+
+```
+```{r}
+####Extract the results
+IM188 <- result_IM188$seurat_object
+
+result_IM188$bcmvn
+
+result_IM188$homotypic_prop
+
+result_IM188$nExp_poi
+
+result_IM188$nExp_poi_adj
+```
+```{r}
+###see the doublet tables 
+table(
+  IM188[[grep(
+    "^DF.classifications_",
+    colnames(IM188@meta.data),
+    value = TRUE
+  )[2]]]
+)
+```
+
+
+```{r}
+IM188$doublet_classification <- IM188$DF.classifications_0.25_0.09_138
+```
+
+
+```{r}
+library(patchwork)
+
+df_cols <- grep(
+  "^DF.classifications_",
+  colnames(IM188@meta.data),
+  value = TRUE
+)
+
+p1 <- DimPlot(
+  IM188,
+  reduction = "umap",
+  group.by = df_cols[1],
+  cols = c("Singlet" = "grey80", "Doublet" = "red")
+) + ggtitle("Unadjusted doublets")
+
+p2 <- DimPlot(
+  IM188,
+  reduction = "umap",
+  group.by = df_cols[2],
+  cols = c("Singlet" = "grey80", "Doublet" = "red")
+) + ggtitle("Homotypic-adjusted doublets")
+
+p1 + p2
+```
+
+### "IM186"
+```{r}
+IM186 <- readRDS("/Users/brendakarumbo/Desktop/PhD/Project/IM_samples/processed_samples_with_labels/IM186_processed_with_labels.rds")
+```
+
+
+```{r, message=FALSE}
+result_IM186 <- run_doubletfinder(
+  seu = IM186,
+  PCs = 1:20,
+  pN = 0.25,
+  pK = 0.09,
+  doublet_rate = 0.031,
+  sct = FALSE,
+  annotations = IM186@meta.data$seurat_clusters
+)
+
+```
+
+```{r}
+####Extract the results
+IM186 <- result_IM186$seurat_object
+
+result_IM186$bcmvn
+
+result_IM186$homotypic_prop
+
+result_IM186$nExp_poi
+
+result_IM186$nExp_poi_adj
+```
+```{r}
+###see the doublet tables 
+table(
+  IM186[[grep(
+    "^DF.classifications_",
+    colnames(IM186@meta.data),
+    value = TRUE
+  )[2]]]
+)
+```
+
+```{r}
+IM186$doublet_classification <- IM186$DF.classifications_0.25_0.09_129
+```
+
+
+```{r}
+library(patchwork)
+
+df_cols <- grep(
+  "^DF.classifications_",
+  colnames(IM186@meta.data),
+  value = TRUE
+)
+
+p1 <- DimPlot(
+  IM186,
+  reduction = "umap",
+  group.by = df_cols[1],
+  cols = c("Singlet" = "grey80", "Doublet" = "red")
+) + ggtitle("Unadjusted doublets")
+
+p2 <- DimPlot(
+  IM186,
+  reduction = "umap",
+  group.by = df_cols[2],
+  cols = c("Singlet" = "grey80", "Doublet" = "red")
+) + ggtitle("Homotypic-adjusted doublets")
+
+p1 + p2
+```
+
+```{r}
+matrix.list <- list(
+  HC20,  HC32, HC34, HC41, IM181 ,IM182 ,IM184 ,IM189 ,IM196 ,IM217
+,IM166 ,IM188, IM186)
+
+length(matrix.list)
+```
+
+
+
+```{r}
+####Give the matrix.list names 
+
+matrix.names <-  c(
+  "HC20" , "HC32" , "HC34" ,"HC41" ,"IM181" ,"IM182" ,"IM184" ,"IM189", "IM196" ,"IM217", "IM166" ,"IM188" ,"IM186"
+)
+
+
+names(matrix.list)<- matrix.names
+
+```
+
+#### save the list of the doublet labeled seurat objects
+```{r}
+saveRDS(matrix.list, "/Users/brendakarumbo/Desktop/PhD/Project/IM_samples/processed_samples_with_labels/Doublet_labelled_seurat_object_list.rds")
+```
+
+
+#### merge the seurat objects
+```{r}
+#### merge the object
+merged_seurat<- merge(x=matrix.list[[1]],
+                       y=matrix.list[2:length(matrix.list)],
+                       merge.data=T)
+
+
+####There. was a mistake in labelling IM189
+merged_seurat$orig.ident[
+  merged_seurat$orig.ident == "IM189_24"
+] <- "IM189"
+
+
+merged_seurat$Condition[
+  merged_seurat$Condition ==  "CM-retpos_24"
+] <- "CM-retpos"
+
+
+merged_seurat <- JoinLayers(merged_seurat)
+```
+
+
+
+
+```{r}
+merged_seurat <- merged_seurat%>%
+   NormalizeData()%>%
+   FindVariableFeatures(selection.method="vst", nfeatures=2000)%>%
+   ScaleData()%>%
+   RunPCA(npcs=50)
+```
+
+
+
+```{r}
+ElbowPlot(merged_seurat, ndims = 40)
+```
+
+
+```{r}
+merged_seurat <- merged_seurat %>% FindNeighbors(dims = 1:30)%>%
+   FindClusters(resolution = 0.15)
+ 
+ merged_seurat <- RunUMAP(merged_seurat, dims = 1:30)
+```
+
+
+```{r}
+before_cond <- DimPlot(merged_seurat, reduction = "umap", group.by = "Condition",
+                   raster = F)
+
+before_orig.ident <- DimPlot(merged_seurat, reduction = "umap", group.by = "orig.ident",
+                   raster = F)
+
+before_cond
+before_orig.ident
+
+```
+
+
+####save the unintegrated merged  seurat object( use for SCVI)
+```{r}
+saveRDS(merged_seurat,"/Users/brendakarumbo/Desktop/PhD/Project/IM_samples/processed_samples_with_labels/Doublet_labelled_merged_seurat_object.rds")
+```
+
+
+####Integrate using stacas
+```{r}
+if (!requireNamespace("remotes")) install.packages("remotes")
+library(remotes)
+
+remotes::install_github("carmonalab/STACAS")
+
+```
+
+
+
+```{r}
+library(future)
+library(STACAS)
+plan(sequential)
+options(future.globals.maxSize = 12 * 1024^3)  # adjust to your RAM
+
+merged_seurat <- merged_seurat %>% SplitObject(split.by = "orig.ident") %>%
+      Run.STACAS(dims = 1:30, anchor.features = 2000) %>%
+      RunUMAP(dims = 1:30) 
+
+DimPlot(merged_seurat, group.by = "orig.ident", shuffle = T, alpha = 0.4)
+```
+
+
+
+
+```{r}
+###Cluster
+
+merged_seurat <- FindNeighbors(object = merged_seurat, dims = 1:30)
+
+# Select a range of resolutions
+resolution.range <- seq(from = 0, to = 1, by = 0.1)
+
+merged_seurat <- FindClusters(merged_seurat, resolution = resolution.range)
+```
+
+
+
+
+```{r}
+####find optimal cluster
+clustree(merged_seurat)
+```
+
+
+
+```{r}
+Idents(merged_seurat) <- merged_seurat$integrated_snn_res.1
+```
+
+
+```{r}
+DefaultAssay(merged_seurat) <- "integrated"
+
+merged_seurat <-  RunUMAP(merged_seurat, dims = 1:30) 
+```
+
+
+```{r}
+options(repr.plot.width=15, repr.plot.height=10)
+p1 <- DimPlot(merged_seurat, reduction = "umap", group.by = "orig.ident", label = F, raster=FALSE, shuffle = TRUE) 
+p2 <- DimPlot(merged_seurat, reduction = "umap", label = T, repel = TRUE,raster=FALSE, shuffle = TRUE)
+
+p3 <- DimPlot(merged_seurat, reduction = "umap", group.by = "Condition", label = F,raster=FALSE,shuffle = T)
+
+p1
+p2
+p3
+
+```
+```{r}
+options(repr.plot.width=15, repr.plot.height=10)
+p4 <- DimPlot(merged_seurat, reduction = "umap", group.by = "doublet_classification", label = T, raster=FALSE, shuffle = TRUE) 
+
+p4
+```
+
+### create a stacked bar plot of the different doublet levels
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Create a data frame
+doublet_df <- merged_seurat@meta.data %>%
+  mutate(
+    cluster =as.numeric(as.character(Idents(merged_seurat))),
+    doublet_classification = as.factor(doublet_classification)
+  )
+
+# Plot
+ggplot(doublet_df, aes(x = cluster, fill = doublet_classification)) +
+  geom_bar(position = "stack") +
+  labs(
+    x = "Cluster",
+    y = "Number of cells",
+    fill = "Doublet classification",
+    title = "Doublets per cluster"
+  ) +
+  theme_classic()
+```
+```{r}
+library(ggplot2)
+library(dplyr)
+library(scales)
+
+doublet_df <- merged_seurat@meta.data %>%
+  mutate(
+    cluster = as.numeric(as.character(Idents(merged_seurat))),
+    doublet_classification = factor(doublet_classification)
+  )
+
+ggplot(doublet_df, aes(
+  x = factor(cluster, levels = sort(unique(cluster))),
+  fill = doublet_classification
+)) +
+  geom_bar(position = "fill", colour = "white", linewidth = 0.2) +
+  scale_y_continuous(
+    labels = percent_format(),
+    breaks = seq(0, 1, 0.2),
+    expand = c(0, 0)
+  ) +
+  scale_fill_manual(
+    values = c("Doublet" = "#F8766D", "Singlet" = "#00BFC4")
+  ) +
+  labs(
+    x = "Cluster",
+    y = "Percentage of cells",
+    fill = "Doublet classification",
+    title = "Percentage of doublets and singlets per cluster"
+  ) +
+  theme_classic()
+```
+
+#### remove the doublets 
+```{r}
+merged_seurat <- subset(merged_seurat,subset = doublet_classification == "Singlet")
+```
+
+
+```{r}
+### get the UMAP
+DimPlot(merged_seurat, group.by = "predicted.id", label = T, repel = T)
+```
+
+
+
+
+
+
