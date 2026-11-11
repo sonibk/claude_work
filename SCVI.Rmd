@@ -1,0 +1,21 @@
+---
+title: "SCVI integration"
+author: "Brenda Karumbo"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### read in the merged object
+```{r}
+untintegrated_object <- readRDS("/Users/brendakarumbo/Desktop/PhD/Project/IM_samples/processed_samples_with_labels/Doublet_labelled_merged_seurat_object.rds")
+```
+
+
+```{r}
+
+```
+
